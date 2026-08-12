@@ -64,7 +64,7 @@ def init_db():
             conn.execute("""
                 INSERT INTO connected_accounts (user_id, provider, account_name, ig_user_id, access_token, profile_picture_url, status, created_at)
                 VALUES 
-                ('usr_123', 'instagram', '@henriviniciuscasemiro', '28568074059463119', 'IGAGKXTzZCmGd5BZAGFxSFJ4Q0FtSHBlckNQZAXFPY0FRNlBHS3hENHhxQnYyeDRwNDE4QWxLa3BteDc0VGZAEOWx3MXlNb3BQVW5EeDFIZAFk3Tk92b0ZAUdVNrMUE4OEpSR2tZAMkE5ajQxLW90bzhmdVZAnQmQwWU1fVzgwaER5a3gzcwZDZD', 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=150', 'ACTIVE', ?)
+                ('usr_123', 'instagram', '@henriviniciuscasemiro', '28568074059463119', 'IGAGKXTzZCmGd5BZAGI0czRyU0xlX2NjS2hiMlJKb2ZAJZAEZAmRWhoM2tydElRN29NRTFSaHM0WDk4R3ljS3ZAsdTZAHVURqU3JISWg4d0ZAjT2ZAVM01lZAG4yUE9yeUVRa093MDRGOHBFXzVUU214N1lSMkNkWjZABM05kMWxYTk1Bell0UQZDZD', 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=150', 'ACTIVE', ?)
             """, (now_iso,))
         conn.commit()
 
@@ -555,16 +555,35 @@ async def upload_to_public_cdn(file_path: str, filename: str) -> str:
     return f"http://localhost:7001/uploaded_media/{os.path.basename(file_path)}"
 
 
+from PIL import Image
+
+
 @router.post("/upload")
 async def upload_media_file(file: UploadFile = File(...)):
     """
     Salva arquivos de vídeo e imagem enviados da interface e gera URL HTTPS CDN para a Meta API.
+    Converte automaticamente imagens .jfif, .webp, etc. para JPEG (.jpg) compatível com o Instagram.
     """
     clean_filename = f"{int(datetime.now().timestamp())}_{file.filename}"
     file_path = os.path.join(UPLOAD_DIR, clean_filename)
     
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
+
+    # Se for uma imagem não-padrão (ex: .jfif, .webp, .bmp), converte para .jpg nativo da Meta API
+    ext = os.path.splitext(clean_filename)[1].lower()
+    if ext in [".jfif", ".webp", ".bmp", ".tiff", ".gif"]:
+        try:
+            with Image.open(file_path) as img:
+                rgb_img = img.convert("RGB")
+                jpg_filename = os.path.splitext(clean_filename)[0] + ".jpg"
+                jpg_path = os.path.join(UPLOAD_DIR, jpg_filename)
+                rgb_img.save(jpg_path, "JPEG", quality=95)
+                file_path = jpg_path
+                clean_filename = jpg_filename
+                logger.info(f"[IMAGE CONVERT] Convertido de {ext} para .jpg: {clean_filename}")
+        except Exception as e:
+            logger.warning(f"[IMAGE CONVERT ERROR] {e}")
         
     cdn_public_url = await upload_to_public_cdn(file_path, clean_filename)
     logger.info(f"[UPLOAD] Mídia salva com sucesso. CDN HTTPS URL: {cdn_public_url}")
@@ -574,6 +593,7 @@ async def upload_media_file(file: UploadFile = File(...)):
         "filename": file.filename,
         "url": cdn_public_url
     }
+
 
 
 

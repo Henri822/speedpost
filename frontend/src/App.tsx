@@ -9,7 +9,7 @@ import { LuUploadCloud, LuMessageCircle, LuHeadphones } from "react-icons/lu";
 const API_BASE = "http://localhost:7001/api/reels";
 const USER_ID = "usr_123";
 const DEFAULT_IG_USER_ID = "28568074059463119";
-const DEFAULT_TOKEN = "IGAGKXTzZCmGd5BZAGFxSFJ4Q0FtSHBlckNQZAXFPY0FRNlBHS3hENHhxQnYyeDRwNDE4QWxLa3BteDc0VGZAEOWx3MXlNb3BQVW5EeDFIZAFk3Tk92b0ZAUdVNrMUE4OEpSR2tZAMkE5ajQxLW90bzhmdVZAnQmQwWU1fVzgwaER5a3gzcwZDZD";
+const DEFAULT_TOKEN = "IGAGKXTzZCmGd5BZAGI0czRyU0xlX2NjS2hiMlJKb2ZAJZAEZAmRWhoM2tydElRN29NRTFSaHM0WDk4R3ljS3ZAsdTZAHVURqU3JISWg4d0ZAjT2ZAVM01lZAG4yUE9yeUVRa093MDRGOHBFXzVUU214N1lSMkNkWjZABM05kMWxYTk1Bell0UQZDZD";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>("programar_v2");
