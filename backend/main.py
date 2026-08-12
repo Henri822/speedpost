@@ -18,8 +18,10 @@ from routes import (
     prompt_reports,
     agent_runs,
     eval_sets,
+    reels_scheduler,
 )
 from uploaded_assets import configure_uploaded_asset_routes
+import asyncio
 
 app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
 configure_uploaded_asset_routes(app)
@@ -38,6 +40,11 @@ async def probe_screenshot_preview_on_startup() -> None:
     from preview_screenshot import probe_screenshot_preview
 
     await probe_screenshot_preview()
+
+
+@app.on_event("startup")
+async def start_reels_worker_task() -> None:
+    asyncio.create_task(reels_scheduler.start_reels_background_worker())
 
 # Configure CORS settings
 app.add_middleware(
@@ -59,3 +66,5 @@ app.include_router(design_systems.router)
 app.include_router(prompt_reports.router)
 app.include_router(agent_runs.router)
 app.include_router(eval_sets.router)
+app.include_router(reels_scheduler.router)
+

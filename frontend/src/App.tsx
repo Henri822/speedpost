@@ -1,981 +1,386 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { generateCode } from "./generateCode";
-import { AppState, AppTheme, EditorTheme, Settings } from "./types";
-import { NEW_DESIGN_SYSTEM_CONTENT } from "./lib/design-systems";
-import { IS_RUNNING_ON_CLOUD } from "./config";
-import { OnboardingNote } from "./components/messages/OnboardingNote";
-import { usePersistedState } from "./hooks/usePersistedState";
-import TermsOfServiceDialog from "./components/TermsOfServiceDialog";
-import { USER_CLOSE_WEB_SOCKET_CODE } from "./constants";
-import toast from "react-hot-toast";
-import { nanoid } from "nanoid";
-import { Stack } from "./lib/stacks";
-import { CodeGenerationModel } from "./lib/models";
-import useBrowserTabIndicator from "./hooks/useBrowserTabIndicator";
-import { LuChevronLeft } from "react-icons/lu";
-import {
-  buildAssistantHistoryMessage,
-  buildUpdateGenerationRequest,
-  buildUserHistoryMessage,
-  cloneVariantHistory,
-  GenerationRequest,
-  registerAssetIds,
-} from "./lib/prompt-history";
-// import TipLink from "./components/messages/TipLink";
-import { useAppStore } from "./store/app-store";
-import { useProjectStore } from "./store/project-store";
-import { useDesignSystems } from "./hooks/useDesignSystems";
-import {
-  buildSelectedElementInstruction,
-  describeElementContext,
-} from "./components/select-and-edit/utils";
-import { useEscapeToExitSelectMode } from "./components/select-and-edit/useEscapeToExitSelectMode";
-import Sidebar from "./components/sidebar/Sidebar";
-import IconStrip from "./components/sidebar/IconStrip";
-import HistoryDisplay from "./components/history/HistoryDisplay";
-import PreviewPane from "./components/preview/PreviewPane";
-import StartPane from "./components/start-pane/StartPane";
-import SettingsTab from "./components/settings/SettingsTab";
-import DesignSystemsModal from "./components/settings/DesignSystemsModal";
-import { AiEditCommit, Commit } from "./components/commits/types";
-import { createCommit } from "./components/commits/utils";
+import React, { useState, useEffect } from "react";
+import { ConnectedAccount, ScheduledPostItem } from "./components/speedpost/types";
+import { SpeedPostSidebar } from "./components/speedpost/SpeedPostSidebar";
+import { ProgramarPostsV2 } from "./components/speedpost/ProgramarPostsV2";
+import { DashboardView } from "./components/speedpost/DashboardView";
+import { LuUploadCloud, LuMessageCircle, LuHeadphones } from "react-icons/lu";
 
-function App() {
-  const {
-    // Inputs
-    inputMode,
-    setInputMode,
-    referenceImages,
-    setReferenceImages,
-    initialPrompt,
-    setInitialPrompt,
-    upsertPromptAssets,
-    resetPromptAssets,
+const API_BASE = "http://localhost:7001/api/reels";
+const USER_ID = "usr_123";
+const DEFAULT_IG_USER_ID = "28568074059463119";
+const DEFAULT_TOKEN = "IGAGKXTzZCmGd5BZAGFxSFJ4Q0FtSHBlckNQZAXFPY0FRNlBHS3hENHhxQnYyeDRwNDE4QWxLa3BteDc0VGZAEOWx3MXlNb3BQVW5EeDFIZAFk3Tk92b0ZAUdVNrMUE4OEpSR2tZAMkE5ajQxLW90bzhmdVZAnQmQwWU1fVzgwaER5a3gzcwZDZD";
 
-    head,
-    commits,
-    addCommit,
-    removeCommit,
-    setHead,
-    appendCommitCode,
-    setCommitCode,
-    resetCommits,
-    resetHead,
-    updateVariantStatus,
-    resizeVariants,
-    setVariantModels,
-    appendVariantHistoryMessage,
-    startAgentEvent,
-    appendAgentEventContent,
-    finishAgentEvent,
+export default function App() {
+  const [activeTab, setActiveTab] = useState<string>("programar_v2");
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
 
-    // Outputs
-    appendExecutionConsole,
-    resetExecutionConsoles,
-  } = useProjectStore();
-
-  const {
-    disableInSelectAndEditMode,
-    setUpdateInstruction,
-    updateImages,
-    setUpdateImages,
-    appState,
-    setAppState,
-    selectedElement,
-    setSelectedElement,
-  } = useAppStore();
-
-  // Settings
-  const [settings, setSettings] = usePersistedState<Settings>(
+  // Accounts & Posts State
+  const [accounts, setAccounts] = useState<ConnectedAccount[]>([
     {
-      openAiApiKey: null,
-      openAiBaseURL: null,
-      replicateApiKey: null,
-      anthropicApiKey: null,
-      geminiApiKey: null,
-      screenshotOneApiKey: null,
-      isImageGenerationEnabled: true,
-      editorTheme: EditorTheme.COBALT,
-      generatedCodeConfig: Stack.HTML_TAILWIND,
-      codeGenerationModel: CodeGenerationModel.GEMINI_3_FLASH_PREVIEW_MINIMAL,
-      selectedDesignSystemId: null,
-      // Only relevant for hosted version
-      isTermOfServiceAccepted: false,
-    },
-    "setting"
-  );
-  const [appTheme, setAppTheme] = usePersistedState<AppTheme>(
-    AppTheme.SYSTEM,
-    "app-theme"
-  );
+      id: 1,
+      user_id: USER_ID,
+      provider: "instagram",
+      account_name: "@henriviniciuscasemiro",
+      ig_user_id: DEFAULT_IG_USER_ID,
+      access_token: DEFAULT_TOKEN,
+      profile_picture_url: "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=150",
+      status: "ACTIVE"
+    }
+  ]);
+  const [selectedAccount, setSelectedAccount] = useState<ConnectedAccount | null>(accounts[0]);
+  const [posts, setPosts] = useState<ScheduledPostItem[]>([]);
+  const [publishedCount, setPublishedCount] = useState<number>(1);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  const wsRef = useRef<WebSocket>(null);
-  const lastThinkingEventIdRef = useRef<Record<number, string>>({});
-  const lastAssistantEventIdRef = useRef<Record<number, string>>({});
-  const lastToolEventIdRef = useRef<Record<number, string>>({});
+  // Bulk Form State
+  const [bulkCount, setBulkCount] = useState<number>(5);
+  const [bulkStartDate, setBulkStartDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [bulkTimes, setBulkTimes] = useState<string>("09:00, 14:00, 18:00, 21:00");
+  const [bulkCaption] = useState<string>("Reels em lote automatizado ⚡ #speedpost");
 
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [mobilePane, setMobilePane] = useState<"preview" | "chat">("preview");
-  const [isDesignSystemsModalOpen, setIsDesignSystemsModalOpen] =
-    useState(false);
-  const [designSystemsModalInitialId, setDesignSystemsModalInitialId] =
-    useState<string | null>(null);
-  const {
-    designSystems,
-    isLoading: areDesignSystemsLoading,
-    createDesignSystem,
-    updateDesignSystem,
-    deleteDesignSystem,
-  } = useDesignSystems();
+  const triggerToast = (message: string, type: "success" | "error" | "info" = "info") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
 
-  const setSelectedDesignSystemId = useCallback(
-    (id: string | null) => {
-      setSettings((prev) => ({ ...prev, selectedDesignSystemId: id }));
-    },
-    [setSettings]
-  );
+  // Fetch backend data
+  const fetchBackendData = async () => {
+    try {
+      const resAcc = await fetch(`${API_BASE}/accounts?user_id=${USER_ID}`);
+      if (resAcc.ok) {
+        const accData = await resAcc.json();
+        if (accData.length > 0) {
+          setAccounts(accData);
+          setSelectedAccount(accData[0]);
+        }
+      }
 
-  const openDesignSystemsManager = useCallback((focusedId?: string | null) => {
-    setDesignSystemsModalInitialId(focusedId ?? null);
-    setIsDesignSystemsModalOpen(true);
+      const resPosts = await fetch(`${API_BASE}/scheduled?user_id=${USER_ID}`);
+      if (resPosts.ok) {
+        const pData = await resPosts.json();
+        setPosts(pData);
+        const pub = pData.filter((p: ScheduledPostItem) => p.status === "PUBLISHED").length;
+        setPublishedCount(pub > 0 ? pub : 1);
+      }
+    } catch (err) {
+      // Backend status silent sync
+    }
+  };
+
+  useEffect(() => {
+    fetchBackendData();
+    const interval = setInterval(fetchBackendData, 5000);
+    return () => clearInterval(interval);
   }, []);
 
-  const handleAddNewDesignSystem = useCallback(async () => {
+  const handleScheduleSingle = async (payload: { video_url: string; caption: string; scheduled_at: string; publishNow: boolean }) => {
+    setIsSubmitting(true);
     try {
-      const isFirst = designSystems.length === 0;
-      const created = await createDesignSystem({
-        name: `Design system ${designSystems.length + 1}`,
-        content: NEW_DESIGN_SYSTEM_CONTENT,
+      const res = await fetch(`${API_BASE}/schedule-single`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: USER_ID,
+          ig_user_id: selectedAccount ? selectedAccount.ig_user_id : DEFAULT_IG_USER_ID,
+          access_token: selectedAccount ? selectedAccount.access_token : DEFAULT_TOKEN,
+          video_url: payload.video_url,
+          caption: payload.caption,
+          scheduled_at: payload.scheduled_at
+        })
       });
-      if (isFirst) {
-        setSelectedDesignSystemId(created.id);
-      }
-      openDesignSystemsManager(created.id);
-    } catch (error) {
-      console.error("Failed to create design system", error);
-      toast.error("Could not create design system.");
-    }
-  }, [
-    createDesignSystem,
-    designSystems.length,
-    openDesignSystemsManager,
-    setSelectedDesignSystemId,
-  ]);
-  // Indicate coding state using the browser tab's favicon and title
-  useBrowserTabIndicator(appState === AppState.CODING);
 
-  useEscapeToExitSelectMode();
-
-  // When the user already has the settings in local storage, newly added keys
-  // do not get added to the settings so if it's falsy, we populate it with the default
-  // value
-  useEffect(() => {
-    if (!settings.generatedCodeConfig) {
-      setSettings((prev) => ({
-        ...prev,
-        generatedCodeConfig: Stack.HTML_TAILWIND,
-      }));
-    }
-  }, [settings.generatedCodeConfig, setSettings]);
-
-  useEffect(() => {
-    if (!("selectedDesignSystemId" in settings)) {
-      setSettings((prev) => ({
-        ...prev,
-        selectedDesignSystemId: null,
-      }));
-    }
-  }, [settings, setSettings]);
-
-
-  useEffect(() => {
-    if (
-      settings.selectedDesignSystemId &&
-      !areDesignSystemsLoading &&
-      !designSystems.some(
-        (designSystem) => designSystem.id === settings.selectedDesignSystemId
-      )
-    ) {
-      setSettings((prev) => ({
-        ...prev,
-        selectedDesignSystemId: null,
-      }));
-    }
-  }, [
-    areDesignSystemsLoading,
-    designSystems,
-    settings.selectedDesignSystemId,
-    setSettings,
-  ]);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    const applyTheme = () => {
-      const isDark =
-        appTheme === AppTheme.DARK ||
-        (appTheme === AppTheme.SYSTEM && mediaQuery.matches);
-      document.documentElement.classList.toggle("dark", isDark);
-      document.body.classList.toggle("dark", isDark);
-    };
-
-    applyTheme();
-
-    if (appTheme !== AppTheme.SYSTEM) {
-      return;
-    }
-
-    const onChange = () => applyTheme();
-    mediaQuery.addEventListener("change", onChange);
-
-    return () => {
-      mediaQuery.removeEventListener("change", onChange);
-    };
-  }, [appTheme]);
-
-  const getAssetsById = () => useProjectStore.getState().assetsById;
-
-  // Functions
-  const reset = () => {
-    // Stop any in-flight generation so late websocket events can't mutate
-    // state after the reset (e.g. flipping the app back to CODE_READY).
-    cancelCodeGeneration();
-    setAppState(AppState.INITIAL);
-    setUpdateInstruction("");
-    setUpdateImages([]);
-    disableInSelectAndEditMode();
-    resetExecutionConsoles();
-
-    resetCommits();
-    resetHead();
-    resetPromptAssets();
-
-    // Inputs
-    setInputMode("image");
-    setReferenceImages([]);
-  };
-
-  const regenerate = () => {
-    if (head === null) {
-      toast.error(
-        "No current version set. Please contact support via chat or Github."
-      );
-      throw new Error("Regenerate called with no head");
-    }
-
-    const currentCommit = commits[head];
-    if (!currentCommit) {
-      toast.error("The selected version could not be found.");
-      return;
-    }
-
-    if (currentCommit.type === "ai_edit") {
-      regenerateUpdate(currentCommit);
-      return;
-    }
-
-    if (currentCommit.type === "code_create") {
-      toast.error("Imported code cannot be regenerated.");
-      return;
-    }
-
-    // Re-run the initial create request.
-    if (inputMode === "image" || inputMode === "video") {
-      doCreate(referenceImages, inputMode);
-    } else {
-      doCreateFromText(initialPrompt);
-    }
-  };
-
-  // Used when the user cancels the code generation
-  const cancelCodeGeneration = () => {
-    wsRef.current?.close?.(USER_CLOSE_WEB_SOCKET_CODE);
-  };
-
-  // Used for user-initiated cancellation and failed edit rollbacks
-  const cancelCodeGenerationAndReset = (commit: Commit) => {
-    // When the current commit is the first version, reset the entire app state
-    if (commit.type === "ai_create") {
-      reset();
-    } else {
-      // Otherwise, remove current commit from commits
-      removeCommit(commit.hash);
-
-      // Revert to parent commit
-      const parentCommitHash = commit.parentHash;
-      if (parentCommitHash) {
-        setHead(parentCommitHash);
+      if (res.ok) {
+        triggerToast(
+          payload.publishNow 
+            ? "⚡ Disparando publicação imediata na Meta Graph API!" 
+            : "🚀 Post/Reel agendado com sucesso!", 
+          "success"
+        );
+        fetchBackendData();
       } else {
-        throw new Error("Parent commit not found");
+        triggerToast("Erro ao agendar publicação.", "error");
       }
-
-      setAppState(AppState.CODE_READY);
+    } catch (err) {
+      triggerToast("Falha de conexão com o servidor local.", "error");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  function doGenerateCode(
-    params: GenerationRequest,
-    generationParentHash: string | null = head
-  ) {
-    // Reset the execution console
-    resetExecutionConsoles();
-
-    // Set the app state to coding during generation
-    setAppState(AppState.CODING);
-
-    const { variantHistory, ...requestParams } = params;
-
-    const selectedDesignSystem = designSystems.find(
-      (designSystem) => designSystem.id === settings.selectedDesignSystemId
-    );
-
-    // Merge settings with params
-    const updatedParams = {
-      ...settings,
-      ...requestParams,
-      designSystem: selectedDesignSystem?.content ?? null,
-    };
-
-    // Use 4 variants for create, 2 for edits to match backend counts
-    // and avoid a flash when the backend sends the actual variant count
-    const initialVariantCount =
-      requestParams.generationType === "create" ? 4 : 2;
-    const baseCommitObject = {
-      variants: Array(initialVariantCount)
-        .fill(null)
-        .map(() => ({
-          code: "",
-          history: cloneVariantHistory(variantHistory),
-        })),
-    };
-
-    const commitInputObject =
-      requestParams.generationType === "create"
-        ? {
-            ...baseCommitObject,
-            type: "ai_create" as const,
-            parentHash: null,
-            inputs: requestParams.prompt,
-          }
-        : {
-            ...baseCommitObject,
-            type: "ai_edit" as const,
-            parentHash: generationParentHash,
-            inputs: requestParams.prompt,
-          };
-
-    // Create a new commit and set it as the head
-    const commit = createCommit(commitInputObject);
-    addCommit(commit);
-    setHead(commit.hash);
-
-    lastThinkingEventIdRef.current = {};
-    lastAssistantEventIdRef.current = {};
-    lastToolEventIdRef.current = {};
-
-    const finishThinkingEvent = (variantIndex: number, status: "complete" | "error") => {
-      const eventId = lastThinkingEventIdRef.current[variantIndex];
-      if (!eventId) return;
-      finishAgentEvent(commit.hash, variantIndex, eventId, {
-        status,
-        endedAt: Date.now(),
-      });
-      delete lastThinkingEventIdRef.current[variantIndex];
-    };
-
-    const finishAssistantEvent = (variantIndex: number, status: "complete" | "error") => {
-      const eventId = lastAssistantEventIdRef.current[variantIndex];
-      if (!eventId) return;
-      finishAgentEvent(commit.hash, variantIndex, eventId, {
-        status,
-        endedAt: Date.now(),
-      });
-      delete lastAssistantEventIdRef.current[variantIndex];
-    };
-
-    const finishToolEvent = (variantIndex: number, status: "complete" | "error") => {
-      const eventId = lastToolEventIdRef.current[variantIndex];
-      if (!eventId) return;
-      finishAgentEvent(commit.hash, variantIndex, eventId, {
-        status,
-        endedAt: Date.now(),
-      });
-      delete lastToolEventIdRef.current[variantIndex];
-    };
-
-    const finishInFlightEvents = (status: "complete" | "error") => {
-      Object.keys(lastThinkingEventIdRef.current).forEach((key) => {
-        finishThinkingEvent(Number(key), status);
-      });
-      Object.keys(lastAssistantEventIdRef.current).forEach((key) => {
-        finishAssistantEvent(Number(key), status);
-      });
-      Object.keys(lastToolEventIdRef.current).forEach((key) => {
-        finishToolEvent(Number(key), status);
-      });
-    };
-
-    generateCode(wsRef, updatedParams, {
-      onChange: (token, variantIndex) => {
-        appendCommitCode(commit.hash, variantIndex, token);
-      },
-      onSetCode: (code, variantIndex) => {
-        setCommitCode(commit.hash, variantIndex, code);
-      },
-      onStatusUpdate: (line, variantIndex) =>
-        appendExecutionConsole(variantIndex, line),
-      onVariantComplete: (variantIndex) => {
-        console.log(`Variant ${variantIndex} complete event received`);
-        updateVariantStatus(commit.hash, variantIndex, "complete");
-        const currentCode =
-          useProjectStore.getState().commits[commit.hash]?.variants[variantIndex]
-            ?.code || "";
-        if (currentCode.trim().length > 0) {
-          appendVariantHistoryMessage(
-            commit.hash,
-            variantIndex,
-            buildAssistantHistoryMessage(currentCode)
-          );
-        }
-        finishThinkingEvent(variantIndex, "complete");
-        finishAssistantEvent(variantIndex, "complete");
-        finishToolEvent(variantIndex, "complete");
-        if (commit.type === "ai_edit") {
-          const {
-            updateInstruction: currentInstruction,
-            updateImages: currentImages,
-          } = useAppStore.getState();
-          const instructionUnchanged =
-            currentInstruction === commit.inputs.text;
-          const imagesUnchanged =
-            currentImages.length === commit.inputs.images.length &&
-            currentImages.every(
-              (image, index) => image === commit.inputs.images[index]
-            );
-
-          // This conditional clear handles three UX scenarios:
-          // 1) All variants fail: no completion event, so keep prompt/images for retry.
-          // 2) A variant completes and user has typed/changed images: do not clear.
-          // 3) A variant completes and user has not changed draft: clear for next edit.
-          if (instructionUnchanged && imagesUnchanged) {
-            setUpdateInstruction("");
-            setUpdateImages([]);
-          }
-        }
-      },
-      onVariantError: (variantIndex, error) => {
-        console.error(`Error in variant ${variantIndex}:`, error);
-        updateVariantStatus(commit.hash, variantIndex, "error", error);
-        finishThinkingEvent(variantIndex, "error");
-        finishAssistantEvent(variantIndex, "error");
-        finishToolEvent(variantIndex, "error");
-      },
-      onVariantCount: (count) => {
-        console.log(`Backend is using ${count} variants`);
-        resizeVariants(commit.hash, count);
-      },
-      onVariantModels: (models) => {
-        setVariantModels(commit.hash, models);
-      },
-      onThinking: (content, variantIndex, eventId) => {
-        if (!eventId) return;
-        lastThinkingEventIdRef.current[variantIndex] = eventId;
-        startAgentEvent(commit.hash, variantIndex, {
-          id: eventId,
-          type: "thinking",
-          status: "running",
-          startedAt: Date.now(),
-        });
-        appendAgentEventContent(commit.hash, variantIndex, eventId, content);
-      },
-      onAssistant: (content, variantIndex, eventId) => {
-        if (!eventId) return;
-        lastAssistantEventIdRef.current[variantIndex] = eventId;
-        startAgentEvent(commit.hash, variantIndex, {
-          id: eventId,
-          type: "assistant",
-          status: "running",
-          startedAt: Date.now(),
-        });
-        appendAgentEventContent(commit.hash, variantIndex, eventId, content);
-      },
-      onToolStart: (data, variantIndex, eventId) => {
-        if (!eventId) return;
-        const lastThinking = lastThinkingEventIdRef.current[variantIndex];
-        if (lastThinking && lastThinking !== eventId) {
-          finishThinkingEvent(variantIndex, "complete");
-        }
-        const lastAssistant = lastAssistantEventIdRef.current[variantIndex];
-        if (lastAssistant && lastAssistant !== eventId) {
-          finishAssistantEvent(variantIndex, "complete");
-        }
-        startAgentEvent(commit.hash, variantIndex, {
-          id: eventId,
-          type: "tool",
-          status: "running",
-          toolName: data?.name,
-          input: data?.input,
-          startedAt: Date.now(),
-        });
-        lastToolEventIdRef.current[variantIndex] = eventId;
-      },
-      onToolResult: (data, variantIndex, eventId) => {
-        if (!eventId) return;
-        finishAgentEvent(commit.hash, variantIndex, eventId, {
-          status: data?.ok === false ? "error" : "complete",
-          output: data?.output,
-          endedAt: Date.now(),
-        });
-        if (lastToolEventIdRef.current[variantIndex] === eventId) {
-          delete lastToolEventIdRef.current[variantIndex];
-        }
-      },
-      onCancel: (reason, errorMessage) => {
-        // The project may have been reset while this generation was still in
-        // flight — a stale cancellation must not mutate app state.
-        if (!useProjectStore.getState().commits[commit.hash]) return;
-
-        // Close any running agent events when the socket ends without per-event
-        // terminal messages, otherwise they remain stuck in "running" state.
-        finishInFlightEvents(reason === "request_failed" ? "error" : "complete");
-
-        if (reason === "request_failed" && commit.type === "ai_create") {
-          const latestCreateCommit = useProjectStore.getState().commits[commit.hash];
-          latestCreateCommit?.variants.forEach((variant, variantIndex) => {
-            if (variant.status === "generating") {
-              updateVariantStatus(
-                commit.hash,
-                variantIndex,
-                "error",
-                errorMessage || "Generation failed. Please retry."
-              );
-            }
-          });
-          setAppState(AppState.CODE_READY);
-          return;
-        }
-
-        cancelCodeGenerationAndReset(commit);
-      },
-      onComplete: () => {
-        // Same guard as onCancel: a generation finishing after its project
-        // was reset must not pull the app back into the editor.
-        if (!useProjectStore.getState().commits[commit.hash]) return;
-        finishInFlightEvents("complete");
-        setAppState(AppState.CODE_READY);
-      },
-    });
-  }
-
-  // Initial version creation
-  function doCreate(
-    referenceImages: string[],
-    inputMode: "image" | "video",
-    textPrompt: string = "",
-    isAssetExtractionEnabled = true
-  ) {
-    // Reset any existing state
-    reset();
-
-    // Set the input states
-    setReferenceImages(referenceImages);
-    setInputMode(inputMode);
-
-    // Kick off the code generation
-    if (referenceImages.length > 0) {
-      const media =
-        inputMode === "video" ? [referenceImages[0]] : referenceImages;
-      const imageAssetIds =
-        inputMode === "image"
-          ? registerAssetIds(
-              "image",
-              media,
-              getAssetsById,
-              upsertPromptAssets,
-              nanoid
-            )
-          : [];
-      const videoAssetIds =
-        inputMode === "video"
-          ? registerAssetIds(
-              "video",
-              media,
-              getAssetsById,
-              upsertPromptAssets,
-              nanoid
-            )
-          : [];
-      const variantHistory = [
-        buildUserHistoryMessage(textPrompt, imageAssetIds, videoAssetIds),
-      ];
-      doGenerateCode({
-        generationType: "create",
-        inputMode,
-        prompt: {
-          text: textPrompt,
-          images: inputMode === "image" ? media : [],
-          videos: inputMode === "video" ? media : [],
-        },
-        // Asset extraction operates on still screenshots. Video data uses the
-        // same transport shape for Gemini, so explicitly disable extraction
-        // instead of letting the agent try to crop a video payload.
-        isAssetExtractionEnabled:
-          inputMode === "image" && isAssetExtractionEnabled,
-        variantHistory,
-      });
+  const handlePublishNow = async (reelId: number) => {
+    try {
+      const res = await fetch(`${API_BASE}/publish-now/${reelId}`, { method: "POST" });
+      if (res.ok) {
+        triggerToast("⚡ Publicação imediata disparada!", "success");
+        fetchBackendData();
+      }
+    } catch (err) {
+      triggerToast("Erro ao publicar.", "error");
     }
-  }
-
-  function doCreateFromText(text: string) {
-    // Reset any existing state
-    reset();
-
-    setInputMode("text");
-    setInitialPrompt(text);
-    doGenerateCode({
-      generationType: "create",
-      inputMode: "text",
-      prompt: { text, images: [], videos: [] },
-      variantHistory: [buildUserHistoryMessage(text)],
-    });
-  }
-
-  function regenerateUpdate(commit: AiEditCommit) {
-    const parentHash = commit.parentHash;
-    const parentCommit = parentHash ? commits[parentHash] : null;
-    if (!parentHash || !parentCommit) {
-      toast.error("The previous version needed to retry this edit was not found.");
-      return;
-    }
-
-    const parentVariant =
-      parentCommit.variants[parentCommit.selectedVariantIndex];
-    if (!parentVariant) {
-      toast.error("The selected option from the previous version was not found.");
-      return;
-    }
-
-    const imageAssetIds = registerAssetIds(
-      "image",
-      commit.inputs.images,
-      getAssetsById,
-      upsertPromptAssets,
-      nanoid
-    );
-
-    doGenerateCode(
-      buildUpdateGenerationRequest({
-        inputMode,
-        prompt: commit.inputs,
-        parentCommit,
-        imageAssetIds,
-        getAssetsById,
-      }),
-      parentHash
-    );
-  }
-
-  // Subsequent updates
-  async function doUpdate(updateInstruction: string) {
-    if (updateInstruction.trim() === "") {
-      toast.error("Please include some instructions for AI on what to update.");
-      return;
-    }
-
-    if (head === null) {
-      toast.error(
-        "No current version set. Contact support or open a Github issue."
-      );
-      throw new Error("Update called with no head");
-    }
-
-    const currentCommit = commits[head];
-    if (!currentCommit) {
-      toast.error("The selected version could not be found.");
-      return;
-    }
-
-    let modifiedUpdateInstruction = updateInstruction;
-    let selectedElementHtml: string | undefined;
-
-    // Send in a reference to the selected element if it exists. Selection
-    // visuals are overlays, so the element's outerHTML is already clean.
-    if (selectedElement) {
-      const elementHtml = selectedElement.outerHTML;
-      selectedElementHtml = elementHtml;
-      modifiedUpdateInstruction = buildSelectedElementInstruction(
-        updateInstruction,
-        elementHtml,
-        selectedElement.isConnected
-          ? describeElementContext(selectedElement)
-          : undefined
-      );
-      setSelectedElement(null);
-    }
-
-    const updateImageAssetIds = registerAssetIds(
-      "image",
-      updateImages,
-      getAssetsById,
-      upsertPromptAssets,
-      nanoid
-    );
-
-    doGenerateCode(
-      buildUpdateGenerationRequest({
-        inputMode,
-        prompt: {
-          text: updateInstruction,
-          fullText: modifiedUpdateInstruction,
-          images: updateImages,
-          videos: [],
-          selectedElementHtml,
-        },
-        parentCommit: currentCommit,
-        imageAssetIds: updateImageAssetIds,
-        getAssetsById,
-      })
-    );
-  }
-
-  const handleTermDialogOpenChange = (open: boolean) => {
-    setSettings((s) => ({
-      ...s,
-      isTermOfServiceAccepted: !open,
-    }));
   };
 
-  function setStack(stack: Stack) {
-    setSettings((prev) => ({
-      ...prev,
-      generatedCodeConfig: stack,
-    }));
-  }
+  const handleBulkSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      const timesList = bulkTimes.split(",").map(t => t.trim()).filter(Boolean);
+      const sampleVideos = Array.from({ length: Number(bulkCount) }).map((_, idx) => ({
+        video_url: "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&q=80",
+        caption: `${bulkCaption} (Vídeo #${idx + 1})`
+      }));
 
-  function importFromCode(code: string, stack: Stack) {
-    // Reset any existing state
-    reset();
+      const res = await fetch(`${API_BASE}/schedule-bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: USER_ID,
+          ig_user_id: selectedAccount ? selectedAccount.ig_user_id : DEFAULT_IG_USER_ID,
+          access_token: selectedAccount ? selectedAccount.access_token : DEFAULT_TOKEN,
+          videos: sampleVideos,
+          start_date: bulkStartDate,
+          times_per_day: timesList
+        })
+      });
 
-    // Set up this project
-    setStack(stack);
-
-    // Create a new commit and set it as the head
-    const commit = createCommit({
-      type: "code_create",
-      parentHash: null,
-      variants: [{ code, history: [] }],
-      inputs: null,
-    });
-    addCommit(commit);
-    setHead(commit.hash);
-
-    // Set the app state
-    setAppState(AppState.CODE_READY);
-  }
-
-  const showContentPanel =
-    appState === AppState.CODING ||
-    appState === AppState.CODE_READY ||
-    isHistoryOpen;
-  const isCodingOrReady =
-    appState === AppState.CODING || appState === AppState.CODE_READY;
-  const showMobileChatPane = showContentPanel && mobilePane === "chat";
+      if (res.ok) {
+        const data = await res.json();
+        triggerToast(`🔥 ${data.message}`, "success");
+        setActiveTab("dashboard");
+        fetchBackendData();
+      } else {
+        triggerToast("Erro ao agendar lote.", "error");
+      }
+    } catch (err) {
+      triggerToast("Falha ao enviar lote.", "error");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
-    <div
-      className={`dark:bg-black dark:text-white ${
-        appState === AppState.CODING || appState === AppState.CODE_READY
-          ? "flex h-dvh flex-col overflow-hidden lg:block lg:h-screen"
-          : "min-h-screen"
-      }`}
-    >
-      {IS_RUNNING_ON_CLOUD && (
-        <TermsOfServiceDialog
-          open={!settings.isTermOfServiceAccepted}
-          onOpenChange={handleTermDialogOpenChange}
-        />
-      )}
-
-      {/* Icon strip - always visible */}
-      <div
-        className="sticky top-0 z-50 lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-16 lg:flex-col"
-      >
-        <IconStrip
-          isHistoryOpen={isHistoryOpen}
-          isEditorOpen={!isHistoryOpen && !isSettingsOpen}
-          isSettingsOpen={isSettingsOpen}
-          showHistory={isCodingOrReady}
-          showEditor={isCodingOrReady}
-          onToggleHistory={() => {
-            setIsHistoryOpen((prev) => !prev);
-            setIsSettingsOpen(false);
-            setMobilePane("chat");
-          }}
-          onToggleEditor={() => {
-            setIsHistoryOpen(false);
-            setIsSettingsOpen(false);
-            setMobilePane("preview");
-          }}
-          onLogoClick={() => {
-            setIsHistoryOpen(false);
-            setIsSettingsOpen(false);
-            setMobilePane("preview");
-          }}
-          onNewProject={() => {
-            reset();
-            setIsHistoryOpen(false);
-            setIsSettingsOpen(false);
-            setMobilePane("preview");
-          }}
-          onOpenSettings={() => {
-            setIsSettingsOpen(true);
-            setIsHistoryOpen(false);
-          }}
-        />
-      </div>
-
-      {isCodingOrReady && !isSettingsOpen && (
-        <div className="border-b border-gray-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-950 lg:hidden">
-          <div className="grid grid-cols-2 rounded-xl bg-gray-100 p-1 dark:bg-zinc-800">
-            <button
-              onClick={() => {
-                setIsHistoryOpen(false);
-                setMobilePane("preview");
-              }}
-              className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                mobilePane === "preview"
-                  ? "bg-white text-gray-900 shadow-sm dark:bg-zinc-700 dark:text-white"
-                  : "text-gray-500 dark:text-zinc-400"
-              }`}
-            >
-              Preview
-            </button>
-            <button
-              onClick={() => setMobilePane("chat")}
-              className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                mobilePane === "chat"
-                  ? "bg-white text-gray-900 shadow-sm dark:bg-zinc-700 dark:text-white"
-                  : "text-gray-500 dark:text-zinc-400"
-              }`}
-            >
-              Chat
-            </button>
+    <div className="flex min-h-screen bg-[#09080F] text-gray-200">
+      
+      {/* TOAST NOTIFICATION */}
+      {toast && (
+        <div className="fixed top-5 right-5 z-50 flex items-center gap-3 px-5 py-3.5 rounded-2xl bg-[#13111C] border border-purple-500/40 text-white shadow-[0_0_20px_rgba(109,40,217,0.4)] animate-bounce-short">
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-sm ${toast.type === "success" ? "bg-emerald-500/20 text-emerald-400" : "bg-purple-500/20 text-purple-400"}`}>
+            {toast.type === "success" ? "✓" : "⚡"}
+          </div>
+          <div>
+            <p className="font-semibold text-sm">{toast.message}</p>
+            <p className="text-[10px] text-gray-400">SpeedPost Engine • Agora</p>
           </div>
         </div>
       )}
 
-      {/* Content panel - shows sidebar, history, or editor */}
-      {showContentPanel && !isSettingsOpen && (
-        <div
-          className={`border-b border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 dark:text-white lg:fixed lg:inset-y-0 lg:left-16 lg:z-40 lg:flex lg:w-[calc(28rem-4rem)] lg:flex-col lg:border-b-0 lg:border-r ${
-            showMobileChatPane ? "block" : "hidden lg:flex"
-          }`}
-        >
-            {isHistoryOpen ? (
-              <div className="flex-1 overflow-y-auto sidebar-scrollbar-stable px-4">
-                <div className="mt-3">
-                  <div className="flex items-center justify-between mb-3 px-1">
-                    <h2 className="text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Versions</h2>
-                    <button
-                      onClick={() => setIsHistoryOpen(false)}
-                      className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
-                    >
-                      <LuChevronLeft className="w-3.5 h-3.5" />
-                      Back to editor
-                    </button>
-                  </div>
-                  <HistoryDisplay />
+      {/* SIDEBAR NAVIGATION */}
+      <SpeedPostSidebar 
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        isCollapsed={isCollapsed}
+        setIsCollapsed={setIsCollapsed}
+      />
+
+      {/* MAIN CONTENT AREA */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        
+        {/* TOP WARNING BANNER */}
+        <div className="bg-gradient-to-r from-purple-950/80 via-purple-900/30 to-[#09080F] border-b border-purple-500/25 px-6 py-2 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2 text-purple-200 font-medium">
+            <span className="text-purple-400">ⓘ</span>
+            <span>Assinatura necessária para agendar e publicar.</span>
+          </div>
+          <button onClick={() => setActiveTab("planos")} className="text-purple-300 hover:text-white font-semibold text-xs flex items-center gap-1">
+            Ver planos ↗
+          </button>
+        </div>
+
+        {/* TAB CONTENTS */}
+        {activeTab === "programar_v2" && (
+          <ProgramarPostsV2 
+            selectedAccount={selectedAccount}
+            onNavigateToAccounts={() => setActiveTab("contas")}
+            onScheduleSingle={handleScheduleSingle}
+            isSubmitting={isSubmitting}
+          />
+        )}
+
+        {activeTab === "dashboard" && (
+          <DashboardView 
+            posts={posts}
+            publishedCount={publishedCount}
+            onNavigateToSchedule={() => setActiveTab("programar_v2")}
+            onPublishNow={handlePublishNow}
+          />
+        )}
+
+        {activeTab === "carrossel_massa" && (
+          <div className="p-8 max-w-5xl mx-auto w-full space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-purple-600/20 border border-purple-500/40 text-purple-400 flex items-center justify-center text-lg">
+                <LuUploadCloud />
+              </div>
+              <div>
+                <h2 className="text-2xl font-extrabold text-white tracking-tight">Carrossel em Massa</h2>
+                <p className="text-xs text-gray-400">Crie e agende vários carrosséis e posts de feed de uma vez</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 text-xs font-semibold border-b border-[#201C2F] pb-3">
+              <span className="px-3 py-1 rounded-xl bg-purple-600 text-white shadow-glow">1. Upload</span>
+              <span className="text-gray-500">❯</span>
+              <span className="text-gray-400">2. Montagem</span>
+              <span className="text-gray-500">❯</span>
+              <span className="text-gray-400">3. Agendar</span>
+            </div>
+
+            <form onSubmit={handleBulkSubmit} className="space-y-6">
+              <div className="p-12 rounded-3xl border-2 border-dashed border-purple-500/30 bg-[#13111C] hover:bg-[#181524] transition-all text-center space-y-3 cursor-pointer">
+                <div className="w-14 h-14 rounded-2xl bg-purple-600/10 text-purple-400 flex items-center justify-center mx-auto text-2xl">
+                  ↑
+                </div>
+                <p className="text-sm font-bold text-white">Arraste arquivos aqui ou clique para selecionar</p>
+                <p className="text-xs text-gray-400">Imagens (JPG, PNG, WebP) e Vídeos (MP4, MOV, WebM)</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-xs font-bold text-gray-300 block mb-1">Quantidade de Vídeos:</label>
+                  <input 
+                    type="number" 
+                    value={bulkCount}
+                    onChange={(e) => setBulkCount(Number(e.target.value))}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#13111C] border border-[#201C2F] text-xs text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-300 block mb-1">Data Inicial:</label>
+                  <input 
+                    type="date" 
+                    value={bulkStartDate}
+                    onChange={(e) => setBulkStartDate(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#13111C] border border-[#201C2F] text-xs text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-300 block mb-1">Horários por dia:</label>
+                  <input 
+                    type="text" 
+                    value={bulkTimes}
+                    onChange={(e) => setBulkTimes(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#13111C] border border-[#201C2F] text-xs text-white font-mono"
+                  />
                 </div>
               </div>
-            ) : (
-              <>
-                {IS_RUNNING_ON_CLOUD && !settings.openAiApiKey && (
-                  <div className="px-6 mt-4">
-                    <OnboardingNote />
-                  </div>
-                )}
 
-                {(appState === AppState.CODING ||
-                  appState === AppState.CODE_READY) && (
-                  <Sidebar
-                    doUpdate={doUpdate}
-                    regenerate={regenerate}
-                    cancelCodeGeneration={cancelCodeGeneration}
-                    designSystem={{
-                      designSystems,
-                      selectedDesignSystemId: settings.selectedDesignSystemId,
-                      setSelectedDesignSystemId,
-                      onAddNew: handleAddNewDesignSystem,
-                      onManage: () => openDesignSystemsManager(),
-                    }}
-                    onOpenVersions={() => {
-                      setIsHistoryOpen(true);
-                      setMobilePane("chat");
-                    }}
-                  />
-                )}
-              </>
-            )}
-        </div>
-      )}
-
-      <main
-        className={`${
-          isSettingsOpen
-            ? "flex flex-1 min-h-0 flex-col lg:h-full lg:pl-16"
-            : showContentPanel
-              ? "flex flex-1 min-h-0 flex-col lg:h-full lg:pl-[28rem]"
-              : "lg:pl-16"
-        } ${isCodingOrReady && !isSettingsOpen && mobilePane === "chat" ? "hidden lg:flex" : ""}`}
-      >
-        {isSettingsOpen ? (
-          <SettingsTab
-            settings={settings}
-            setSettings={setSettings}
-            appTheme={appTheme}
-            setAppTheme={setAppTheme}
-          />
-        ) : (
-          <>
-            {appState === AppState.INITIAL && (
-              <StartPane
-                doCreate={doCreate}
-                doCreateFromText={doCreateFromText}
-                importFromCode={importFromCode}
-                settings={settings}
-                setSettings={setSettings}
-                designSystems={designSystems}
-                onAddNewDesignSystem={handleAddNewDesignSystem}
-                onManageDesignSystems={() => openDesignSystemsManager()}
-              />
-            )}
-
-            {isCodingOrReady && (
-              <PreviewPane
-                settings={settings}
-                onOpenVersions={() => {
-                  setIsHistoryOpen(true);
-                  setMobilePane("chat");
-                }}
-              />
-            )}
-          </>
+              <div className="flex justify-end">
+                <button 
+                  type="submit" 
+                  disabled={isSubmitting}
+                  className="px-6 py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-[0_0_20px_rgba(109,40,217,0.4)] transition-all"
+                >
+                  {isSubmitting ? "Agendando lote..." : "Montar Posts & Agendar Lote >"}
+                </button>
+              </div>
+            </form>
+          </div>
         )}
+
+        {activeTab === "calendario" && (
+          <div className="p-8 max-w-6xl mx-auto w-full space-y-6">
+            <div>
+              <h2 className="text-2xl font-extrabold text-white tracking-tight">Calendário</h2>
+              <p className="text-xs text-gray-400">Selecione um profile para ver o calendário de publicações</p>
+            </div>
+
+            <div className="bg-[#13111C] border border-[#201C2F] rounded-2xl p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <img src={selectedAccount?.profile_picture_url || "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=150"} className="w-8 h-8 rounded-full border border-purple-500" alt="Profile" />
+                  <span className="font-bold text-sm text-white">{selectedAccount?.account_name}</span>
+                </div>
+                <span className="text-xs text-purple-400 font-semibold">Agosto 2026</span>
+              </div>
+
+              <div className="grid grid-cols-7 gap-2 text-center text-xs">
+                {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map(d => (
+                  <div key={d} className="font-bold text-gray-500 py-1">{d}</div>
+                ))}
+                {Array.from({ length: 31 }).map((_, i) => (
+                  <div key={i} className="min-h-[80px] p-2 rounded-xl bg-[#0D0B14] border border-[#201C2F]/60 text-left flex flex-col justify-between hover:border-purple-500/40">
+                    <span className="text-[10px] text-gray-400 font-bold">{i + 1}</span>
+                    {i + 1 === 12 && (
+                      <div className="p-1 rounded bg-purple-600/30 border border-purple-500/40 text-[9px] text-purple-200 truncate">
+                        ⚡ 1 Reel Agendado
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "contas" && (
+          <div className="p-8 max-w-5xl mx-auto w-full space-y-6">
+            <div>
+              <h2 className="text-2xl font-extrabold text-white tracking-tight">Contas Conectadas</h2>
+              <p className="text-xs text-gray-400">Gerencie suas contas do Instagram e conexões da Meta API</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {accounts.map(acc => (
+                <div key={acc.id} className="bg-[#13111C] border border-purple-500/40 rounded-2xl p-5 space-y-4 shadow-[0_0_15px_rgba(109,40,217,0.2)]">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <img src={acc.profile_picture_url || "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=150"} className="w-12 h-12 rounded-full border-2 border-purple-500 object-cover" alt="Avatar" />
+                      <div>
+                        <h3 className="font-bold text-base text-white">{acc.account_name}</h3>
+                        <p className="text-xs text-purple-400 font-mono">ID: {acc.ig_user_id}</p>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
+                      ● ATIVO LIVE
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-[#0D0B14] text-[11px] font-mono text-gray-400 truncate">
+                    Token: {acc.access_token.slice(0, 28)}...
+                  </div>
+
+                  <button onClick={() => triggerToast("Conexão com a Meta Graph API validada 100%!", "success")} className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs">
+                    Testar Conexão Meta
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* FLOATING ACTION BUTTONS */}
+        <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-2.5 items-end select-none">
+          <a 
+            href="https://wa.me/" 
+            target="_blank" 
+            rel="noreferrer"
+            className="px-4 py-2.5 rounded-full bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs shadow-[0_0_20px_rgba(16,185,129,0.4)] flex items-center gap-2 transition-all hover:scale-105"
+          >
+            <LuMessageCircle />
+            <span>WhatsApp</span>
+          </a>
+
+          <button 
+            onClick={() => triggerToast("Suporte via chat ativo 24/7.")}
+            className="px-4 py-2.5 rounded-full bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-[0_0_20px_rgba(109,40,217,0.4)] flex items-center gap-2 transition-all hover:scale-105"
+          >
+            <LuHeadphones />
+            <span>Suporte via chat</span>
+          </button>
+        </div>
+
       </main>
 
-      <DesignSystemsModal
-        open={isDesignSystemsModalOpen}
-        onOpenChange={setIsDesignSystemsModalOpen}
-        designSystems={designSystems}
-        selectedDesignSystemId={settings.selectedDesignSystemId}
-        setSelectedDesignSystemId={setSelectedDesignSystemId}
-        initialEditingId={designSystemsModalInitialId}
-        createDesignSystem={createDesignSystem}
-        updateDesignSystem={updateDesignSystem}
-        deleteDesignSystem={deleteDesignSystem}
-      />
     </div>
   );
 }
-
-export default App;

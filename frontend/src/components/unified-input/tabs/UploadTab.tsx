@@ -203,7 +203,7 @@ function UploadTab({ doCreate, stack, setStack, designSystem }: Props) {
     open,
   } = useDropzone({
     maxFiles: MAX_FILES,
-    maxSize: 1024 * 1024 * 20,
+    maxSize: 1024 * 1024 * 100,
     noClick: true,
     accept: {
       "image/png": [".png"],
@@ -222,7 +222,7 @@ function UploadTab({ doCreate, stack, setStack, designSystem }: Props) {
       }
 
       if (firstError.code === "file-too-large") {
-        toast.error("One or more files exceed the 20MB limit.");
+        toast.error("One or more files exceed the 100MB limit.");
         return;
       }
 

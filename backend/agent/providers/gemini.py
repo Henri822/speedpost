@@ -66,8 +66,8 @@ def _get_gemini_api_model_name(model: Llm) -> str:
         Llm.GEMINI_3_1_PRO_PREVIEW_MEDIUM,
         Llm.GEMINI_3_1_PRO_PREVIEW_LOW,
     ]:
-        return "gemini-3.1-pro-preview"
-    return model.value
+        return "gemini-3-flash-preview"
+    return "gemini-3-flash-preview"
 
 
 def _get_thinking_level_for_model(model: Llm) -> str:
@@ -342,11 +342,22 @@ class GeminiProviderSession(ProviderSession):
                 "gemini", api_model_name, request_payload
             )
 
-        stream = await self._client.aio.models.generate_content_stream(
-            model=api_model_name,
-            contents=cast(Any, self._contents),
-            config=config,
-        )
+        import asyncio
+        stream = None
+        for attempt in range(4):
+            try:
+                stream = await self._client.aio.models.generate_content_stream(
+                    model=api_model_name,
+                    contents=cast(Any, self._contents),
+                    config=config,
+                )
+                break
+            except Exception as exc:
+                if ("429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc) or "Quota" in str(exc)) and attempt < 3:
+                    print(f"[Gemini RateLimit] Retrying in 5s (attempt {attempt + 1}/3)...")
+                    await asyncio.sleep(5)
+                else:
+                    raise exc
 
         state = GeminiParseState()
         turn_usage: TokenUsage | None = None
