@@ -64,8 +64,9 @@ def init_db():
             conn.execute("""
                 INSERT INTO connected_accounts (user_id, provider, account_name, ig_user_id, access_token, profile_picture_url, status, created_at)
                 VALUES 
-                ('usr_123', 'instagram', '@henriviniciuscasemiro', '28568074059463119', 'IGAGKXTzZCmGd5BZAGI0czRyU0xlX2NjS2hiMlJKb2ZAJZAEZAmRWhoM2tydElRN29NRTFSaHM0WDk4R3ljS3ZAsdTZAHVURqU3JISWg4d0ZAjT2ZAVM01lZAG4yUE9yeUVRa093MDRGOHBFXzVUU214N1lSMkNkWjZABM05kMWxYTk1Bell0UQZDZD', 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=150', 'ACTIVE', ?)
+                ('usr_123', 'instagram', '@henriviniciuscasemiro', '28568074059463119', 'IGAGKXTzZCmGd5BZAGFIV3hSX2pYM09OR2hQZAm5WTFQ4bF9fWlg3RDBGYTd6blh6MDc5dGtJX2hIQVA5d2ZA2a2o5OWowemJnaXBGeWxuc01qVmhjcHNYSnN5UWlSV293NDFxMEtkanFRNVA3QzhCV2xYQmFobTVFaUh3T29CS2JWVQZDZD', 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=150', 'ACTIVE', ?)
             """, (now_iso,))
+
         conn.commit()
 
 
@@ -151,10 +152,7 @@ async def create_reels_container(ig_user_id: str, access_token: str, video_url: 
         res_data = response.json()
         
         if response.status_code != 200 or "id" not in res_data:
-            error_msg = res_data.get("error", {}).get("message", response.text)
-            if "invalid" in error_msg.lower() or "OAuth" in error_msg:
-                logger.warning(f"[MOCK FALLBACK] Token Meta inválido ({error_msg}). Alternando para simulação.")
-                return f"mock_container_{int(datetime.now().timestamp())}"
+            error_msg = str(res_data.get("error", {}).get("message", response.text))
             raise Exception(f"Erro ao criar container do Reel/Post na Meta: {error_msg}")
         
         return res_data["id"]
@@ -178,7 +176,7 @@ async def wait_for_container_ready(container_id: str, access_token: str, max_ret
             response = await client.get(url, params=params)
             res_data = response.json()
             
-            status_code = res_data.get("status_code", "").upper()
+            status_code = str(res_data.get("status_code", "")).upper()
             logger.info(f"Polling container {container_id} [Tentativa {attempt+1}/{max_retries}]: {status_code}")
             
             if status_code == "FINISHED" or not status_code: # Imagens podem não ter status_code longo
@@ -209,10 +207,7 @@ async def publish_reels_container(ig_user_id: str, access_token: str, container_
         res_data = response.json()
         
         if response.status_code != 200 or "id" not in res_data:
-            error_msg = res_data.get("error", {}).get("message", response.text)
-            if "invalid" in error_msg.lower() or "OAuth" in error_msg:
-                logger.warning("[MOCK FALLBACK] Fallback de publicação simulada ativado.")
-                return f"mock_media_1789{int(datetime.now().timestamp())}"
+            error_msg = str(res_data.get("error", {}).get("message", response.text))
             raise Exception(f"Erro ao publicar Reel na Meta: {error_msg}")
         
         return res_data["id"]
@@ -429,13 +424,13 @@ async def connect_account(payload: ConnectAccountRealRequest):
                 SET account_name = ?, access_token = ?, profile_picture_url = ?, status = 'ACTIVE' 
                 WHERE id = ?
             """, (payload.account_name, payload.access_token, payload.profile_picture_url or "", existing["id"]))
-            account_id = existing["id"]
+            account_id: int = existing["id"]
         else:
             cursor = conn.execute("""
                 INSERT INTO connected_accounts (user_id, provider, account_name, ig_user_id, access_token, profile_picture_url, status, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
             """, (payload.user_id, payload.provider or 'instagram', payload.account_name, payload.ig_user_id, payload.access_token, payload.profile_picture_url or "", now_str))
-            account_id = cursor.lastrowid
+            account_id: int = cursor.lastrowid or 0
         conn.commit()
     return {"status": "success", "account_id": account_id, "message": "Conta conectada com sucesso!"}
 
@@ -472,6 +467,9 @@ async def schedule_single_reel(payload: SingleScheduleRequest, background_tasks:
         ))
         reel_id = cursor.lastrowid
         conn.commit()
+        
+    if reel_id is None:
+        raise HTTPException(status_code=500, detail="Falha ao criar Reel no banco de dados.")
 
     if payload.publish_now or not payload.scheduled_at:
         logger.info(f"[INSTANT PUBLISH] Disparando Reel #{reel_id} imediatamente para o Instagram!")
@@ -545,7 +543,7 @@ async def upload_to_public_cdn(file_path: str, filename: str) -> str:
                 res = await client.post("https://tmpfiles.org/api/v1/upload", files={"file": (filename, f)})
             if res.status_code == 200:
                 data = res.json()
-                raw_url = data.get("data", {}).get("url", "")
+                raw_url = str(data.get("data", {}).get("url", ""))
                 if raw_url:
                     cdn_url = raw_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
                     logger.info(f"[CDN UPLOAD] Arquivo enviado para CDN pública: {cdn_url}")

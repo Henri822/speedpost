@@ -1,6 +1,6 @@
 import React from 'react';
 import { ScheduledPostItem } from './types';
-import { LuClock, LuCheckCircle2, LuTrendingUp, LuCalendar, LuPlusCircle } from 'react-icons/lu';
+import { LuClock, LuCheckCircle2, LuTrendingUp, LuCalendar, LuPlusCircle, LuAlertTriangle, LuInfo } from 'react-icons/lu';
 
 interface DashboardViewProps {
   posts: ScheduledPostItem[];
@@ -126,29 +126,54 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         ) : (
           <div className="divide-y divide-[#201C2F]">
             {posts.map((p) => (
-              <div key={p.id} className="py-3 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <img src={p.video_url || "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=100"} className="w-10 h-10 rounded-lg object-cover border border-[#201C2F]" alt="Thumbnail" />
-                  <div className="text-xs">
-                    <p className="font-bold text-white max-w-md truncate">{p.caption || 'Sem legenda'}</p>
-                    <p className="text-[10px] text-gray-400">{new Date(p.scheduled_at).toLocaleString('pt-BR')}</p>
+              <div key={p.id} className="py-3 flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <img src={p.video_url || "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=100"} className="w-10 h-10 rounded-lg object-cover border border-[#201C2F]" alt="Thumbnail" />
+                    <div className="text-xs">
+                      <p className="font-bold text-white max-w-md truncate">{p.caption || 'Sem legenda'}</p>
+                      <p className="text-[10px] text-gray-400">{new Date(p.scheduled_at).toLocaleString('pt-BR')}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${
+                      p.status === 'PUBLISHED' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' :
+                      p.status === 'PENDING' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 
+                      p.status === 'FAILED' ? 'bg-red-500/10 text-red-400 border border-red-500/30' : 'bg-purple-500/10 text-purple-400'
+                    }`}>
+                      {p.status}
+                    </span>
+
+                    {p.status === 'PENDING' && (
+                      <button onClick={() => onPublishNow(p.id)} className="px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-[10px]">
+                        Disparar Agora
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${
-                    p.status === 'PUBLISHED' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' :
-                    p.status === 'PENDING' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'bg-purple-500/10 text-purple-400'
-                  }`}>
-                    {p.status}
-                  </span>
-
-                  {p.status === 'PENDING' && (
-                    <button onClick={() => onPublishNow(p.id)} className="px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-[10px]">
-                      Disparar Agora
-                    </button>
-                  )}
-                </div>
+                {p.status === 'FAILED' && (
+                  <div className="p-3 rounded-xl bg-red-950/20 border border-red-500/30 space-y-2 mt-1">
+                    <div>
+                      <p className="text-[11px] font-bold text-red-400 flex items-center gap-1.5">
+                        <LuAlertTriangle /> Ocorreu um erro no envio para o Instagram
+                      </p>
+                      <p className="text-[11px] text-red-300/80 mt-1">{p.error_log || 'Erro desconhecido.'}</p>
+                    </div>
+                    
+                    <div className="p-3 rounded-lg bg-[#13111C] border border-[#201C2F] mt-2">
+                      <p className="text-[11px] font-bold text-gray-300 flex items-center gap-1.5 mb-2">
+                        <LuInfo className="text-purple-400" /> Como resolver:
+                      </p>
+                      <ul className="text-[10px] text-gray-400 space-y-1.5 list-disc pl-4">
+                        <li><strong>Token Expirado ou Inválido:</strong> O Instagram desconectou sua conta por segurança. Vá na tela de <strong>Gerenciar Contas</strong>, remova a conta e conecte-a novamente.</li>
+                        <li><strong>Formato Inválido:</strong> O Instagram Reels só aceita vídeos verticais (9:16), em formato MP4 ou MOV, e com no máximo 15 minutos.</li>
+                        <li><strong>Conta Profissional:</strong> Certifique-se de que sua conta do Instagram é uma Conta Profissional / Business e está vinculada a uma página do Facebook.</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>

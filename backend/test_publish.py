@@ -2,7 +2,8 @@ import asyncio
 import httpx
 
 IG_USER_ID = "28568074059463119"
-ACCESS_TOKEN = "IGAGKXTzZCmGd5BZAGFxSFJ4Q0FtSHBlckNQZAXFPY0FRNlBHS3hENHhxQnYyeDRwNDE4QWxLa3BteDc0VGZAEOWx3MXlNb3BQVW5EeDFIZAFk3Tk92b0ZAUdVNrMUE4OEpSR2tZAMkE5ajQxLW90bzhmdVZAnQmQwWU1fVzgwaER5a3gzcwZDZD"
+ACCESS_TOKEN = "IGAGKXTzZCmGd5BZAGFIV3hSX2pYM09OR2hQZAm5WTFQ4bF9fWlg3RDBGYTd6blh6MDc5dGtJX2hIQVA5d2ZA2a2o5OWowemJnaXBGeWxuc01qVmhjcHNYSnN5UWlSV293NDFxMEtkanFRNVA3QzhCV2xYQmFobTVFaUh3T29CS2JWVQZDZD"
+
 
 async def test_full_publication():
     print("==================================================")
@@ -29,11 +30,14 @@ async def test_full_publication():
 
         container_id = res.json()["id"]
         print(f"\n[SUCESSO] Container criado com ID: {container_id}")
+        print("Aguardando 5 segundos para o Instagram processar a mídia...")
+        await asyncio.sleep(5)
 
         print("\n==================================================")
         print("2. PUBLICANDO CONTAINER NO INSTAGRAM (media_publish)")
         print("==================================================")
         publish_url = f"https://graph.instagram.com/v20.0/{IG_USER_ID}/media_publish"
+
         publish_payload = {
             "creation_id": container_id,
             "access_token": ACCESS_TOKEN
@@ -45,7 +49,8 @@ async def test_full_publication():
         
         if pub_res.status_code == 200:
             media_id = pub_res.json().get("id")
-            print(f"\n🚀 [POST PUBLICADO COM SUCESSO NO INSTAGRAM!] ID da Mídia: {media_id}")
+            print(f"\n[POST PUBLICADO COM SUCESSO NO INSTAGRAM!] ID da Mdia: {media_id}")
+
         else:
             print(f"\n[ERRO NA PUBLICAÇÃO] Resposta: {pub_res.text}")
 
