@@ -1,6 +1,7 @@
 import os
 import argparse
 import uvicorn
+from main import app
 
 if __name__ == "__main__":
     env_port = int(os.environ.get("PORT", 7001))
@@ -12,4 +13,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print(f"Iniciando SpeedPost Backend em {args.host}:{args.port}...")
-    uvicorn.run("main:app", host=args.host, port=args.port, reload=False)
+    uvicorn.run(app, host=args.host, port=args.port, reload=False)
