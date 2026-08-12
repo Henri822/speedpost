@@ -3,6 +3,7 @@ import { ConnectedAccount, ScheduledPostItem } from "./components/speedpost/type
 import { SpeedPostSidebar } from "./components/speedpost/SpeedPostSidebar";
 import { ProgramarPostsV2 } from "./components/speedpost/ProgramarPostsV2";
 import { DashboardView } from "./components/speedpost/DashboardView";
+import { ContasProfilesView } from "./components/speedpost/ContasProfilesView";
 import { LuUploadCloud, LuMessageCircle, LuHeadphones } from "react-icons/lu";
 
 const API_BASE = "http://localhost:7001/api/reels";
@@ -52,7 +53,11 @@ export default function App() {
         const accData = await resAcc.json();
         if (accData.length > 0) {
           setAccounts(accData);
-          setSelectedAccount(accData[0]);
+          setSelectedAccount((prev) => {
+            if (!prev) return accData[0];
+            const exists = accData.find((a: ConnectedAccount) => a.ig_user_id === prev.ig_user_id);
+            return exists || accData[0];
+          });
         }
       }
 
@@ -86,7 +91,8 @@ export default function App() {
           access_token: selectedAccount ? selectedAccount.access_token : DEFAULT_TOKEN,
           video_url: payload.video_url,
           caption: payload.caption,
-          scheduled_at: payload.scheduled_at
+          scheduled_at: payload.scheduled_at,
+          publish_now: payload.publishNow
         })
       });
 
@@ -158,6 +164,42 @@ export default function App() {
     }
   };
 
+  const handleAddAccount = async (payload: { account_name: string; ig_user_id: string; access_token: string }) => {
+    try {
+      const res = await fetch(`${API_BASE}/connect-account`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: USER_ID,
+          provider: "instagram",
+          account_name: payload.account_name,
+          ig_user_id: payload.ig_user_id,
+          access_token: payload.access_token
+        })
+      });
+      if (res.ok) {
+        triggerToast("Conta do Instagram conectada com sucesso!", "success");
+        fetchBackendData();
+      }
+    } catch (err) {
+      triggerToast("Erro ao conectar conta.", "error");
+    }
+  };
+
+  const handleDeleteAccount = async (accountId: number) => {
+    try {
+      const res = await fetch(`${API_BASE}/accounts/${accountId}`, {
+        method: "DELETE"
+      });
+      if (res.ok) {
+        triggerToast("Conta removida com sucesso!", "success");
+        fetchBackendData();
+      }
+    } catch (err) {
+      triggerToast("Erro ao remover conta.", "error");
+    }
+  };
+
   return (
     <div className="flex min-h-screen bg-[#09080F] text-gray-200">
       
@@ -199,10 +241,22 @@ export default function App() {
         {/* TAB CONTENTS */}
         {activeTab === "programar_v2" && (
           <ProgramarPostsV2 
+            accounts={accounts}
             selectedAccount={selectedAccount}
+            onSelectAccount={setSelectedAccount}
             onNavigateToAccounts={() => setActiveTab("contas")}
             onScheduleSingle={handleScheduleSingle}
             isSubmitting={isSubmitting}
+          />
+        )}
+
+        {activeTab === "contas" && (
+          <ContasProfilesView 
+            accounts={accounts}
+            selectedAccount={selectedAccount}
+            onSelectAccount={setSelectedAccount}
+            onAddAccount={handleAddAccount}
+            onDeleteAccount={handleDeleteAccount}
           />
         )}
 

@@ -1,24 +1,73 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ConnectedAccount } from './types';
 import { LuInstagram, LuUploadCloud, LuInfo, LuLock, LuVideo, LuAlertTriangle } from 'react-icons/lu';
 
 interface ProgramarPostsV2Props {
+  accounts: ConnectedAccount[];
   selectedAccount: ConnectedAccount | null;
+  onSelectAccount: (acc: ConnectedAccount) => void;
   onNavigateToAccounts: () => void;
   onScheduleSingle: (payload: { video_url: string; caption: string; scheduled_at: string; publishNow: boolean }) => Promise<void>;
   isSubmitting: boolean;
 }
 
 export const ProgramarPostsV2: React.FC<ProgramarPostsV2Props> = ({
+  accounts,
   selectedAccount,
+  onSelectAccount,
   onNavigateToAccounts,
   onScheduleSingle,
   isSubmitting
 }) => {
-  const [videoUrl, setVideoUrl] = useState("https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&q=80");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string>("");
+  const [previewUrl, setPreviewUrl] = useState<string>("https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&q=80");
+  const [isUploading, setIsUploading] = useState<boolean>(false);
   const [caption, setCaption] = useState("Meu Reels automático incrível! 🚀 #speedpost #instagram");
   const [trialReelMode, setTrialReelMode] = useState<'Desativado' | 'Manual (via App)' | 'Automática (Performance)'>('Desativado');
   const [scheduledDateTime, setScheduledDateTime] = useState(new Date(Date.now() + 3600000).toISOString().slice(0, 16));
+
+  const processFile = async (file: File) => {
+    setSelectedFileName(file.name);
+    setIsUploading(true);
+    const localBlob = URL.createObjectURL(file);
+    setPreviewUrl(localBlob);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch("http://localhost:7001/api/reels/upload", {
+        method: "POST",
+        body: formData
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.url) {
+          setVideoUrl(data.url);
+        }
+      }
+    } catch (err) {
+      console.log("Erro no upload CDN.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      processFile(e.target.files[0]);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      processFile(e.dataTransfer.files[0]);
+    }
+  };
+
 
   return (
     <div className="p-8 max-w-7xl mx-auto w-full space-y-6">
@@ -36,41 +85,66 @@ export const ProgramarPostsV2: React.FC<ProgramarPostsV2Props> = ({
       </div>
 
       {/* 2-COLUMN GRID */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         
         {/* LEFT COLUMN: STEPS */}
         <div className="lg:col-span-7 space-y-5">
           
-          {/* CARD 1: PROFILE */}
+          {/* CARD 1: PROFILE SELECTION */}
           <div className="bg-[#13111C] border border-[#201C2F] rounded-2xl p-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full bg-[#201C2F] text-xs font-bold flex items-center justify-center text-gray-300">1</span>
-              <h3 className="font-bold text-sm text-white">Profile</h3>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-[#201C2F] text-xs font-bold flex items-center justify-center text-gray-300">1</span>
+                <h3 className="font-bold text-sm text-white">Selecionar Conta p/ Publicação</h3>
+              </div>
+              <button 
+                onClick={onNavigateToAccounts}
+                className="text-xs text-purple-400 hover:text-purple-300 font-semibold"
+              >
+                + Gerenciar Contas
+              </button>
             </div>
             
-            {selectedAccount ? (
-              <div className="flex items-center justify-between p-3.5 rounded-xl bg-purple-950/30 border border-purple-500/30">
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <img 
-                      src={selectedAccount.profile_picture_url || "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=150"} 
-                      className="w-10 h-10 rounded-full object-cover border border-purple-500/50" 
-                      alt="Profile"
-                    />
-                    <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[#13111C]"></span>
+            {accounts.length > 0 ? (
+              <div className="space-y-2">
+                <label className="text-[11px] font-semibold text-gray-400 block">Selecione qual perfil do Instagram vai postar:</label>
+                <select
+                  value={selectedAccount?.ig_user_id || ''}
+                  onChange={(e) => {
+                    const found = accounts.find(a => a.ig_user_id === e.target.value);
+                    if (found) onSelectAccount(found);
+                  }}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#0D0B14] border border-purple-500/40 text-xs text-white font-bold focus:outline-none focus:border-purple-500"
+                >
+                  {accounts.map((acc) => (
+                    <option key={acc.id || acc.ig_user_id} value={acc.ig_user_id}>
+                      {acc.account_name} (ID: {acc.ig_user_id})
+                    </option>
+                  ))}
+                </select>
+
+                {selectedAccount && (
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-purple-950/20 border border-purple-500/30">
+                    <div className="flex items-center gap-3">
+                      <img 
+                        src={selectedAccount.profile_picture_url || "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=150"} 
+                        className="w-8 h-8 rounded-full object-cover border border-purple-500/50" 
+                        alt="Profile"
+                      />
+                      <div>
+                        <p className="font-bold text-xs text-white">{selectedAccount.account_name}</p>
+                        <p className="text-[10px] text-purple-300 font-mono">Token Ativo: {selectedAccount.access_token.slice(0, 15)}...</p>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
+                      Ativa
+                    </span>
                   </div>
-                  <div>
-                    <p className="font-bold text-sm text-white">{selectedAccount.account_name}</p>
-                    <p className="text-[11px] text-purple-400 font-mono">ID Meta: {selectedAccount.ig_user_id}</p>
-                  </div>
-                </div>
-                <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold uppercase tracking-wider">
-                  Conectado Live
-                </span>
+                )}
               </div>
             ) : (
               <div className="p-4 rounded-xl bg-[#0D0B14] border border-purple-500/20 text-xs text-purple-300 flex items-center justify-between">
-                <span>Nenhum profile conectado.</span>
+                <span>Nenhuma conta conectada.</span>
                 <button onClick={onNavigateToAccounts} className="text-purple-400 hover:underline font-bold">Conectar em Contas →</button>
               </div>
             )}
@@ -164,24 +238,45 @@ export const ProgramarPostsV2: React.FC<ProgramarPostsV2Props> = ({
               <h3 className="font-bold text-sm text-white">Upload & Mídia</h3>
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs font-semibold text-gray-300 block mb-1">URL Pública do Vídeo ou Foto (HTTPS):</label>
-                <input 
-                  type="text" 
-                  value={videoUrl}
-                  onChange={(e) => setVideoUrl(e.target.value)}
-                  placeholder="https://sua-cdn.com/video.mp4" 
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#0D0B14] border border-[#201C2F] text-xs text-white focus:outline-none focus:border-purple-500 font-mono"
-                />
-              </div>
+            <input 
+              type="file" 
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              accept="video/mp4,video/mov,video/webm,image/*"
+              className="hidden"
+            />
 
-              <div className="p-8 rounded-2xl border-2 border-dashed border-purple-500/30 bg-[#0D0B14]/50 hover:bg-[#0D0B14] transition-all text-center space-y-2 cursor-pointer">
-                <div className="w-12 h-12 rounded-2xl bg-purple-500/10 text-purple-400 flex items-center justify-center mx-auto text-xl">
+            <div className="space-y-3">
+              <div 
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleDrop}
+                className="p-8 rounded-2xl border-2 border-dashed border-purple-500/30 bg-[#0D0B14]/50 hover:bg-[#0D0B14] hover:border-purple-500 transition-all text-center space-y-2 cursor-pointer group"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-purple-500/10 text-purple-400 group-hover:scale-110 flex items-center justify-center mx-auto text-xl transition-transform">
                   <LuUploadCloud />
                 </div>
-                <p className="text-xs font-bold text-white">Arraste vídeos ou clique para selecionar</p>
-                <p className="text-[11px] text-gray-400">Formatos aceitos: MP4, MOV, WebM</p>
+
+                {isUploading ? (
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-purple-400 flex items-center justify-center gap-2 animate-pulse">
+                      <span>⚡</span> Enviando mídia para Cloud Storage CDN...
+                    </p>
+                    <p className="text-[11px] text-gray-400">Aguarde alguns segundos enquanto preparamos a URL da Meta API</p>
+                  </div>
+                ) : selectedFileName ? (
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-emerald-400 flex items-center justify-center gap-1.5">
+                      <span>✓</span> Mídia Selecionada: {selectedFileName}
+                    </p>
+                    <p className="text-[11px] text-purple-300">Clique para escolher outro arquivo</p>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-xs font-bold text-white">Arraste vídeos ou clique para selecionar</p>
+                    <p className="text-[11px] text-gray-400">Formatos aceitos: MP4, MOV, WebM</p>
+                  </>
+                )}
               </div>
             </div>
 
@@ -270,7 +365,7 @@ export const ProgramarPostsV2: React.FC<ProgramarPostsV2Props> = ({
             <div className="pt-4 border-t border-[#201C2F] space-y-2">
               <h4 className="font-semibold text-xs text-gray-300">Preview da Mídia</h4>
               <div className="aspect-[9/16] w-full max-h-60 rounded-xl bg-[#0D0B14] border border-[#201C2F] overflow-hidden flex items-center justify-center relative">
-                <img src={videoUrl} className="w-full h-full object-cover" alt="Preview" />
+                <img src={previewUrl} className="w-full h-full object-cover" alt="Preview" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20 p-3 flex flex-col justify-between">
                   <span className="text-[10px] font-bold text-white bg-purple-600/80 px-2 py-0.5 rounded w-fit">Reels Preview</span>
                   <p className="text-[10px] text-gray-200 line-clamp-2">{caption}</p>

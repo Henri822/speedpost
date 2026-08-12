@@ -1,3 +1,4 @@
+import os
 import asyncio
 import logging
 import sqlite3
@@ -53,16 +54,18 @@ def init_db():
                 created_at TEXT NOT NULL
             )
         """)
-        # Pre-popular contas de teste padrão para demonstração inicial se a tabela estiver vazia
+        # Remover contas de teste legadas com mock token
+        conn.execute("DELETE FROM connected_accounts WHERE access_token LIKE 'mock_token%'")
+        
+        # Pre-popular conta padrão do usuário se a tabela estiver vazia
         cursor = conn.execute("SELECT COUNT(*) as count FROM connected_accounts")
         if cursor.fetchone()["count"] == 0:
             now_iso = datetime.now(timezone.utc).isoformat()
             conn.execute("""
                 INSERT INTO connected_accounts (user_id, provider, account_name, ig_user_id, access_token, profile_picture_url, status, created_at)
                 VALUES 
-                ('usr_123', 'instagram', '@speedpost_oficial', '17841400000000001', 'mock_token_1', 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=150', 'ACTIVE', ?),
-                ('usr_123', 'instagram', '@cortes_virais_br', '17841400000000002', 'mock_token_2', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150', 'ACTIVE', ?)
-            """, (now_iso, now_iso))
+                ('usr_123', 'instagram', '@henriviniciuscasemiro', '28568074059463119', 'IGAGKXTzZCmGd5BZAGFxSFJ4Q0FtSHBlckNQZAXFPY0FRNlBHS3hENHhxQnYyeDRwNDE4QWxLa3BteDc0VGZAEOWx3MXlNb3BQVW5EeDFIZAFk3Tk92b0ZAUdVNrMUE4OEpSR2tZAMkE5ajQxLW90bzhmdVZAnQmQwWU1fVzgwaER5a3gzcwZDZD', 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=150', 'ACTIVE', ?)
+            """, (now_iso,))
         conn.commit()
 
 
@@ -105,7 +108,9 @@ class SingleScheduleRequest(BaseModel):
     access_token: str
     video_url: str
     caption: Optional[str] = ""
-    scheduled_at: str  # Format: YYYY-MM-DDTHH:MM:SS
+    scheduled_at: Optional[str] = None
+    publish_now: Optional[bool] = False
+
 
 
 # --- Meta Graph API Integration (com suporte a Modo de Teste/Mock) ---
@@ -435,9 +440,21 @@ async def connect_account(payload: ConnectAccountRealRequest):
     return {"status": "success", "account_id": account_id, "message": "Conta conectada com sucesso!"}
 
 
+@router.delete("/accounts/{account_id}")
+async def delete_connected_account(account_id: int):
+    with get_db() as conn:
+        conn.execute("DELETE FROM connected_accounts WHERE id = ?", (account_id,))
+        conn.commit()
+    return {"status": "success", "message": "Conta removida com sucesso!"}
+
+
+
 @router.post("/schedule-single")
 async def schedule_single_reel(payload: SingleScheduleRequest, background_tasks: BackgroundTasks):
-    now_str = datetime.now(timezone.utc).isoformat()
+    now_dt = datetime.now(timezone.utc)
+    now_str = now_dt.isoformat()
+    sched_time = payload.scheduled_at if payload.scheduled_at and not payload.publish_now else now_str
+
     with get_db() as conn:
         cursor = conn.execute("""
             INSERT INTO scheduled_reels 
@@ -449,21 +466,26 @@ async def schedule_single_reel(payload: SingleScheduleRequest, background_tasks:
             payload.access_token,
             payload.video_url,
             payload.caption or "",
-            payload.scheduled_at,
+            sched_time,
             now_str,
             now_str
         ))
         reel_id = cursor.lastrowid
         conn.commit()
 
-    try:
-        sched_dt = datetime.fromisoformat(payload.scheduled_at.replace("Z", "+00:00"))
-        if sched_dt <= datetime.now(timezone.utc):
+    if payload.publish_now or not payload.scheduled_at:
+        logger.info(f"[INSTANT PUBLISH] Disparando Reel #{reel_id} imediatamente para o Instagram!")
+        background_tasks.add_task(process_and_publish_reel, reel_id)
+    else:
+        try:
+            sched_dt = datetime.fromisoformat(payload.scheduled_at.replace("Z", "+00:00"))
+            if sched_dt <= now_dt:
+                background_tasks.add_task(process_and_publish_reel, reel_id)
+        except Exception:
             background_tasks.add_task(process_and_publish_reel, reel_id)
-    except Exception:
-        pass
 
-    return {"status": "success", "reel_id": reel_id, "message": "Reel/Post agendado com sucesso!"}
+    return {"status": "success", "reel_id": reel_id, "message": "Publicação disparada com sucesso!"}
+
 
 
 # --- OAuth 2.0 & Webhook Integration Endpoints ---
@@ -502,5 +524,57 @@ async def get_oauth_url(redirect_uri: str = "http://localhost:7001/api/reels/oau
     scope = "instagram_basic,instagram_content_publish"
     url = f"https://api.instagram.com/oauth/authorize?client_id={META_APP_ID}&redirect_uri={redirect_uri}&scope={scope}&response_type=code"
     return {"oauth_url": url}
+
+
+import shutil
+from fastapi import File, UploadFile
+
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "uploaded_media")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
+async def upload_to_public_cdn(file_path: str, filename: str) -> str:
+    """
+    SaaS Cloud Storage CDN Uploader.
+    Sobe o arquivo local para a CDN pública de alta velocidade,
+    retornando a URL HTTPS pública para a Meta Graph API baixar o vídeo.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            with open(file_path, "rb") as f:
+                res = await client.post("https://tmpfiles.org/api/v1/upload", files={"file": (filename, f)})
+            if res.status_code == 200:
+                data = res.json()
+                raw_url = data.get("data", {}).get("url", "")
+                if raw_url:
+                    cdn_url = raw_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
+                    logger.info(f"[CDN UPLOAD] Arquivo enviado para CDN pública: {cdn_url}")
+                    return cdn_url
+    except Exception as e:
+        logger.warning(f"[CDN UPLOAD ERROR] Fallback ativado: {e}")
+    return f"http://localhost:7001/uploaded_media/{os.path.basename(file_path)}"
+
+
+@router.post("/upload")
+async def upload_media_file(file: UploadFile = File(...)):
+    """
+    Salva arquivos de vídeo e imagem enviados da interface e gera URL HTTPS CDN para a Meta API.
+    """
+    clean_filename = f"{int(datetime.now().timestamp())}_{file.filename}"
+    file_path = os.path.join(UPLOAD_DIR, clean_filename)
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    cdn_public_url = await upload_to_public_cdn(file_path, clean_filename)
+    logger.info(f"[UPLOAD] Mídia salva com sucesso. CDN HTTPS URL: {cdn_public_url}")
+    
+    return {
+        "status": "success",
+        "filename": file.filename,
+        "url": cdn_public_url
+    }
+
+
 
 
